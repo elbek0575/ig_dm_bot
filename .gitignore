@@ -1,6 +1,5 @@
-﻿# env files
-.env
-
-# command helper files
+﻿.env
+.env.*
+.venv/
 commands
 commands.txt
