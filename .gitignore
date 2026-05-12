@@ -1,0 +1,6 @@
+﻿# env files
+.env
+
+# command helper files
+commands
+commands.txt
