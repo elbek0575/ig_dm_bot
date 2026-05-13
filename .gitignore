@@ -3,3 +3,5 @@
 .venv/
 commands
 commands.txt
+assistant_state.json
+assistant_state.json.tmp
