@@ -34,16 +34,25 @@ TELEGRAM_ASSISTANT_LINKS = [
 ]
 _assistant_state_lock = threading.Lock()
 
-AUTO_REPLY_TEMPLATE = (
+AUTO_REPLY_TEMPLATE_UZ = (
     "Ассалому алайкум ҳурматли мижоз, сиз DILHABI COSMETICS косметология марказига мурожаат қилдингиз. "
     "Сизда доғ ва бошқа муаммолар бўлса, {telegram_link} орқали телеграмимизга ўтсангиз, "
-    "суҳбатимизни шу ерда давом эттирамиз.\n\n"
-    "Assalomu alaykum, hurmatli mijoz. Siz DILHABI COSMETICS kosmetologiya markaziga murojaat qildingiz. "
-    "Sizda dog' va boshqa muammolar bo'lsa, {telegram_link} orqali Telegramimizga o'tsangiz, "
-    "suhbatimizni shu yerda davom ettiramiz.\n\n"
+    "суҳбатимизни шу ерда давом эттирамиз."
+)
+AUTO_REPLY_TEMPLATE_RU = (
     "Здравствуйте, уважаемый клиент. Вы обратились в косметологический центр DILHABI COSMETICS. "
     "Если у вас есть пигментные пятна или другие проблемы, перейдите в наш Telegram по ссылке "
     "{telegram_link}, и мы продолжим общение там."
+)
+RUSSIAN_MESSAGE_MARKERS = (
+    "здравствуйте",
+    "добрый день",
+    "доброе утро",
+    "добрый вечер",
+    "добрый ночь",
+    "доброй ночи",
+    "добрая ранка",
+    "сколько",
 )
 
 
@@ -80,8 +89,28 @@ def get_next_telegram_link():
     return link
 
 
-def build_auto_reply_text():
-    return AUTO_REPLY_TEMPLATE.format(telegram_link=get_next_telegram_link())
+def is_russian_message(text: str):
+    normalized_text = (text or "").casefold()
+    return any(marker in normalized_text for marker in RUSSIAN_MESSAGE_MARKERS)
+
+
+def build_auto_reply_text(incoming_text: str = ""):
+    if is_russian_message(incoming_text):
+        telegram_link = DEFAULT_TELEGRAM_LINK
+    else:
+        telegram_link = get_next_telegram_link()
+
+    reply_text = AUTO_REPLY_TEMPLATE_UZ.format(telegram_link=telegram_link)
+
+    if telegram_link == DEFAULT_TELEGRAM_LINK:
+        reply_text = "\n\n".join(
+            [
+                reply_text,
+                AUTO_REPLY_TEMPLATE_RU.format(telegram_link=telegram_link),
+            ]
+        )
+
+    return reply_text
 
 
 @app.get("/webhook")
@@ -163,7 +192,7 @@ def verify_meta_signature(request: Request, body: bytes):
             raise HTTPException(status_code=403, detail=message)
 
 
-def iter_sender_ids(body: dict):
+def iter_incoming_messages(body: dict):
     for entry in body.get("entry", []):
         # Instagram webhook can arrive as entry.changes[].value.
         for change in entry.get("changes", []):
@@ -176,7 +205,7 @@ def iter_sender_ids(body: dict):
 
             if sender_id and message and not message.get("is_echo"):
                 print("Incoming change message from:", sender_id)
-                yield sender_id
+                yield sender_id, message.get("text", "")
 
         # Some Meta messaging webhooks arrive as entry.messaging[].
         for event in entry.get("messaging", []):
@@ -185,7 +214,7 @@ def iter_sender_ids(body: dict):
 
             if sender_id and message and not message.get("is_echo"):
                 print("Incoming messaging event from:", sender_id)
-                yield sender_id
+                yield sender_id, message.get("text", "")
 
 
 @app.post("/webhook")
@@ -201,8 +230,12 @@ async def receive_webhook(request: Request, background_tasks: BackgroundTasks):
     print("Webhook body:", json.dumps(body, ensure_ascii=False))
 
     reply_count = 0
-    for sender_id in iter_sender_ids(body):
-        background_tasks.add_task(send_instagram_reply, sender_id, build_auto_reply_text())
+    for sender_id, incoming_text in iter_incoming_messages(body):
+        background_tasks.add_task(
+            send_instagram_reply,
+            sender_id,
+            build_auto_reply_text(incoming_text),
+        )
         reply_count += 1
 
     print("Webhook processed. Replies queued:", reply_count)
